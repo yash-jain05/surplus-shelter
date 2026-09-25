@@ -1,3 +1,134 @@
+# Surplus Shelter
+
+Surplus Shelter is a food-surplus management platform that connects food donors with recipient organizations and coordinates delivery through drivers.
+
+## Problem Statement
+
+Large amounts of surplus food from individuals, restaurants, events, and organizations can go unused while shelters and community organizations need food resources.
+
+Surplus Shelter provides a digital workflow to connect these two sides and coordinate delivery.
+
+## Proposed Solution
+
+The platform allows:
+
+1. Donors to submit surplus food details.
+2. The system to match donations with suitable recipient organizations.
+3. Recipients to accept available donations.
+4. Drivers to receive assigned deliveries.
+5. Drivers to update delivery status.
+6. The dashboard to display delivery and impact information.
+
+## Application Flow
+
+Dashboard
+↓
+Donor
+↓
+Matching Engine
+↓
+Recipient
+↓
+Driver
+↓
+Delivery
+↓
+Dashboard
+
+## Key Features
+
+- Food donation registration
+- Pickup location selection
+- Recipient matching
+- Recipient capacity management
+- Driver assignment
+- Pickup and delivery tracking
+- Real-time updates
+- Impact dashboard
+- Donation and delivery analytics
+
+## Technology Stack
+
+### Frontend
+- React
+- Vite
+- JavaScript
+- Leaflet
+
+### Backend & Database
+- Supabase
+- PostgreSQL
+- Supabase Realtime
+
+### Deployment
+- Vercel
+
+### Development
+- VS Code
+- Git
+- GitHub
+
+## Database
+
+The application uses Supabase PostgreSQL with the following major tables:
+
+- `donations`
+- `recipients`
+- `matches`
+- `drivers`
+- `notifications`
+
+## Matching System
+
+The matching engine considers:
+
+- Distance
+- Recipient capacity
+- Food-type eligibility
+- Donation urgency
+
+These factors are used to identify suitable recipient organizations.
+
+## Live Application
+
+https://surplus-shelter-ten.vercel.app
+
+## Application Pages
+
+- Home: https://surplus-shelter-ten.vercel.app/home
+- Donor: https://surplus-shelter-ten.vercel.app/donor
+- Recipient: https://surplus-shelter-ten.vercel.app/recipient
+- Driver: https://surplus-shelter-ten.vercel.app/driver
+- Dashboard: https://surplus-shelter-ten.vercel.app/dashboard
+
+## GitHub Repository
+
+https://github.com/yash-jain05/surplus-shelter
+
+## System Architecture
+
+The architecture diagram is available in:
+
+`docs/architecture.png`
+
+## Team
+
+- Yash Jain — Team Captain
+- Kabir Katare
+- Shelly Soni
+- Anubhav Ratnawat
+
+## Future Scope
+
+- Automatic nearest-driver dispatch
+- Improved route optimization
+- Mobile application
+- Advanced notifications
+- AI-assisted food recognition
+- Expansion to multiple cities
+
+
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
