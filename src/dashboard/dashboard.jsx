@@ -20,9 +20,26 @@ import {
 } from 'react-leaflet'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
+import { divIcon } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
 const DEFAULT_LOCATION = [26.9124, 75.7873]
+
+const dashboardMarkerIcon = divIcon({
+  className: 'dashboard-map-marker',
+  html: `
+    <div style="
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #16a34a;
+      border: 3px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    "></div>
+  `,
+  iconSize: [24, 24],
+  iconAnchor: [12, 12],
+})
 
 const FOOD_COLORS = [
   '#16a34a',
@@ -40,7 +57,30 @@ function normalizeToLbs(quantity, unit) {
     return value * 2.20462
   }
 
+  if (unit === 'meals') {
+    return value * 0.5
+  }
+
+  if (unit === 'items') {
+    return value * 0.5
+  }
+
   return value
+}
+
+function formatQuantity(value) {
+  const number = Number(value) || 0
+
+  if (Number.isInteger(number)) {
+    return String(number)
+  }
+
+  return number.toFixed(1)
+}
+
+function safeNumber(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
 }
 
 function getStatusLabel(status) {
@@ -129,6 +169,7 @@ function createNotification(
 
 function Dashboard() {
   const [donations, setDonations] = useState([])
+  const [matches, setMatches] = useState([])
   const [recipients, setRecipients] = useState([])
   const [drivers, setDrivers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -244,6 +285,7 @@ function Dashboard() {
   const loadDashboardData = async () => {
     const [
       donationsResult,
+      matchesResult,
       recipientsResult,
       driversResult,
     ] = await Promise.all([
@@ -251,6 +293,13 @@ function Dashboard() {
         .from('donations')
         .select('*')
         .order('created_at', {
+          ascending: false,
+        }),
+
+      supabase
+        .from('matches')
+        .select('id, donation_id, status, driver_id, recipient_id, score, matched_at')
+        .order('matched_at', {
           ascending: false,
         }),
 
@@ -268,6 +317,12 @@ function Dashboard() {
     if (!donationsResult.error) {
       setDonations(
         donationsResult.data || []
+      )
+    }
+
+    if (!matchesResult.error) {
+      setMatches(
+        matchesResult.data || []
       )
     }
 
@@ -449,54 +504,110 @@ function Dashboard() {
     setNotifications([])
   }
 
-  const deliveredDonations = useMemo(
+  const effectiveDonations = useMemo(() => {
+    const latestMatchByDonation = new Map()
+
+    matches.forEach((match) => {
+      if (!match?.donation_id) return
+
+      const existing = latestMatchByDonation.get(
+        match.donation_id
+      )
+
+      if (!existing) {
+        latestMatchByDonation.set(
+          match.donation_id,
+          match
+        )
+      }
+    })
+
+    return donations.map((donation) => {
+      const match = latestMatchByDonation.get(
+        donation.id
+      )
+
+      let effectiveStatus = donation.status
+
+      // The dashboard stays accurate even if the driver flow has only
+      // updated the match status. Match status is treated as the source
+      // of truth for the delivery stage when it is further along.
+      if (match?.status === 'delivered') {
+        effectiveStatus = 'delivered'
+      } else if (
+        match?.status === 'picked_up' &&
+        effectiveStatus !== 'delivered'
+      ) {
+        effectiveStatus = 'picked_up'
+      } else if (
+        match?.status === 'matched' &&
+        effectiveStatus === 'posted'
+      ) {
+        effectiveStatus = 'matched'
+      }
+
+      return {
+        ...donation,
+        status: effectiveStatus,
+      }
+    })
+  }, [donations, matches])
+
+  // Dashboard impact values are intentionally calculated only from donations
+  // recorded in lbs. Other units are not included in weight/impact metrics.
+  const lbsDonations = useMemo(
     () =>
-      donations.filter(
+      effectiveDonations.filter(
         (donation) =>
-          donation.status ===
-          'delivered'
+          String(donation.unit || '').toLowerCase() === 'lbs'
       ),
-    [donations]
+    [effectiveDonations]
   )
 
-  const postedCount = donations.filter(
-    (donation) =>
-      donation.status === 'posted'
+  const deliveredDonations = useMemo(
+    () =>
+      lbsDonations.filter(
+        (donation) => donation.status === 'delivered'
+      ),
+    [lbsDonations]
+  )
+
+  // These counts/statuses are not quantities, so they can include every donation.
+  const deliveredAllUnits = useMemo(
+    () =>
+      effectiveDonations.filter(
+        (donation) => donation.status === 'delivered'
+      ),
+    [effectiveDonations]
+  )
+
+  const postedCount = effectiveDonations.filter(
+    (donation) => donation.status === 'posted'
   ).length
 
-  const matchedCount = donations.filter(
-    (donation) =>
-      donation.status === 'matched'
+  const matchedCount = effectiveDonations.filter(
+    (donation) => donation.status === 'matched'
   ).length
 
-  const pickedUpCount = donations.filter(
-    (donation) =>
-      donation.status ===
-      'picked_up'
+  const pickedUpCount = effectiveDonations.filter(
+    (donation) => donation.status === 'picked_up'
   ).length
 
-  const deliveredCount =
-    deliveredDonations.length
+  const deliveredCount = deliveredAllUnits.length
 
-  const totalWeightLbs =
-    deliveredDonations.reduce(
-      (total, donation) =>
-        total +
-        normalizeToLbs(
-          donation.quantity,
-          donation.unit
-        ),
-      0
-    )
+  const totalWeightLbs = deliveredDonations.reduce(
+    (total, donation) =>
+      total + Number(donation.quantity || 0),
+    0
+  )
 
-  const totalWeightKg =
-    totalWeightLbs / 2.20462
+  const totalWeightKg = totalWeightLbs / 2.20462
 
-  const totalMealsRescued =
-    totalWeightLbs / 1.2
+  const totalMealsRescued = totalWeightLbs / 1.2
 
-  const co2eAvoided =
-    totalWeightKg * 2.5
+  const totalFoodRescuedDisplay = `${formatQuantity(totalWeightLbs)} lbs`
+
+  const co2eAvoided = totalWeightKg * 2.5
 
   const activeDrivers =
     drivers.filter(
@@ -514,7 +625,7 @@ function Dashboard() {
     ).length
 
   const deliveryChartData =
-    deliveredDonations.reduce(
+    deliveredAllUnits.reduce(
       (result, donation) => {
         const date = new Date(
           donation.created_at
@@ -541,7 +652,7 @@ function Dashboard() {
     )
 
   const foodTypeData =
-    deliveredDonations.reduce(
+    deliveredAllUnits.reduce(
       (result, donation) => {
         const foodType =
           donation.food_type ||
@@ -587,7 +698,7 @@ function Dashboard() {
   ]
 
   const recentActivity =
-    donations
+    lbsDonations
       .slice(0, 6)
       .map((donation) => {
         let title =
@@ -1476,7 +1587,9 @@ function Dashboard() {
 
           .chart-container {
             width: 100%;
-            height: 300px;
+            height: 320px;
+            min-height: 320px;
+            position: relative;
           }
 
           .empty-chart {
@@ -2341,11 +2454,17 @@ function Dashboard() {
                 TOTAL FOOD RESCUED
               </p>
 
-              <div className="milestone-number">
-                {totalWeightLbs.toFixed(
-                  1
-                )}
-                <span> lbs</span>
+              <div
+                className="milestone-number"
+                style={{
+                  fontSize:
+                    totalFoodRescuedDisplay.length > 16
+                      ? '32px'
+                      : '42px',
+                  lineHeight: 1.15,
+                }}
+              >
+                {totalFoodRescuedDisplay}
               </div>
 
               <p
@@ -2435,7 +2554,7 @@ function Dashboard() {
                 icon: '📦',
                 label: 'Total Donations',
                 value:
-                  donations.length,
+                  lbsDonations.length,
                 sub: `${deliveredCount} delivered`,
               },
               {
@@ -2520,7 +2639,7 @@ function Dashboard() {
               {deliveryChartData.length ===
               0 ? (
                 <div className="empty-chart">
-                  No delivery data yet.
+                  No delivered donation data yet.
                 </div>
               ) : (
                 <div className="chart-container">
@@ -2590,7 +2709,7 @@ function Dashboard() {
               {foodTypeData.length ===
               0 ? (
                 <div className="empty-chart">
-                  No food data yet.
+                  No delivered food data yet.
                 </div>
               ) : (
                 <div className="chart-container">
@@ -2751,7 +2870,7 @@ function Dashboard() {
               {statusData.map(
                 (item, index) => {
                   const total =
-                    donations.length ||
+                    effectiveDonations.length ||
                     1
 
                   const percentage =
@@ -2906,9 +3025,8 @@ function Dashboard() {
                   />
 
                   <Marker
-                    position={
-                      DEFAULT_LOCATION
-                    }
+                    position={DEFAULT_LOCATION}
+                    icon={dashboardMarkerIcon}
                   >
                     <Popup>
                       <strong>
@@ -2919,42 +3037,30 @@ function Dashboard() {
                     </Popup>
                   </Marker>
 
-                  {recipients.map(
-                    (recipient) => (
+                  {recipients.map((recipient) => {
+                    const lat = safeNumber(recipient.lat)
+                    const lng = safeNumber(recipient.lng)
+
+                    if (lat === null || lng === null) {
+                      return null
+                    }
+
+                    return (
                       <Marker
-                        key={
-                          recipient.id
-                        }
-                        position={[
-                          Number(
-                            recipient.lat
-                          ),
-                          Number(
-                            recipient.lng
-                          ),
-                        ]}
+                        key={recipient.id}
+                        position={[lat, lng]}
+                        icon={dashboardMarkerIcon}
                       >
                         <Popup>
                           <strong>
-                            {
-                              recipient.name
-                            }
+                            {recipient.name || 'Unnamed recipient'}
                           </strong>
-
                           <br />
-
-                          Capacity:{' '}
-                          {
-                            recipient.capacity_current
-                          }{' '}
-                          /{' '}
-                          {
-                            recipient.capacity_max
-                          }
+                          Capacity: {recipient.capacity_current ?? 0} / {recipient.capacity_max ?? 0}
                         </Popup>
                       </Marker>
                     )
-                  )}
+                  })}
                 </MapContainer>
               </div>
             </div>
@@ -3009,23 +3115,13 @@ function Dashboard() {
 
                               <div>
                                 <div className="driver-name">
-                                  {
-                                    driver.name
-                                  }
+                                  {driver.name || 'Unnamed driver'}
                                 </div>
 
                                 <div className="driver-location">
-                                  {Number(
-                                    driver.lat
-                                  ).toFixed(
-                                    3
-                                  )}
-                                  ,{' '}
-                                  {Number(
-                                    driver.lng
-                                  ).toFixed(
-                                    3
-                                  )}
+                                  {safeNumber(driver.lat) !== null && safeNumber(driver.lng) !== null
+                                    ? `${safeNumber(driver.lat).toFixed(3)}, ${safeNumber(driver.lng).toFixed(3)}`
+                                    : 'Location unavailable'}
                                 </div>
                               </div>
                             </div>
@@ -3083,7 +3179,7 @@ function Dashboard() {
               </span>
             </div>
 
-            {donations.length ===
+            {lbsDonations.length ===
             0 ? (
               <div
                 style={{
@@ -3125,7 +3221,7 @@ function Dashboard() {
                   </thead>
 
                   <tbody>
-                    {donations
+                    {lbsDonations
                       .slice(0, 8)
                       .map(
                         (donation) => {
@@ -3142,25 +3238,17 @@ function Dashboard() {
                             >
                               <td>
                                 <strong>
-                                  {
-                                    donation.food_type
-                                  }
+                                  {donation.food_type || 'Unknown food'}
                                 </strong>
                               </td>
 
                               <td>
-                                {
-                                  donation.quantity
-                                }{' '}
-                                {
-                                  donation.unit
-                                }
+                                {Number(donation.quantity) || 0}{' '}
+                                lbs
                               </td>
 
                               <td>
-                                {
-                                  donation.donor_name
-                                }
+                                {donation.donor_name || 'Anonymous donor'}
                               </td>
 
                               <td>

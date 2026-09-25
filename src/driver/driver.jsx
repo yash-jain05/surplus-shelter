@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { toast } from 'react-hot-toast'
 import {
   MapContainer,
   TileLayer,
@@ -8,8 +7,6 @@ import {
 } from 'react-leaflet'
 import { supabase } from '../lib/supabaseClient'
 import 'leaflet/dist/leaflet.css'
-
-const DEFAULT_LOCATION = [26.9124, 75.7873]
 
 function Driver() {
   const [drivers, setDrivers] = useState([])
@@ -40,7 +37,6 @@ function Driver() {
           table: 'matches',
         },
         () => {
-          toast.success('New donation assignment available!')
           loadMatches()
         }
       )
@@ -83,7 +79,8 @@ function Driver() {
         donations (*),
         recipients (*)
       `)
-      .eq('status', 'picked_up')
+      .eq('driver_id', selectedDriver.id)
+      .in('status', ['accepted', 'picked_up'])
       .order('matched_at', { ascending: false })
 
     if (error) {
@@ -110,30 +107,26 @@ function Driver() {
       return
     }
 
-    const {
-      data: updatedDriver,
-      error: driverError,
-    } = await supabase
+    const { error: driverError } = await supabase
       .from('drivers')
       .update({
         current_match_id: match.id,
         status: 'busy',
       })
       .eq('id', selectedDriver.id)
-      .select()
-      .single()
 
     if (driverError) {
-      console.error(
-        'Error updating driver:',
-        driverError
-      )
-
-      setMessage(
-        'Match assigned, but driver status update failed.'
-      )
-
+      console.error('Error updating driver:', driverError)
+      setMessage('Match assigned, but driver status update failed.')
       return
+    }
+
+    setMessage('Donation assigned successfully.')
+
+    const updatedDriver = {
+      ...selectedDriver,
+      current_match_id: match.id,
+      status: 'busy',
     }
 
     setSelectedDriver(updatedDriver)
@@ -145,76 +138,124 @@ function Driver() {
           : driver
       )
     )
-
-    setMessage('Donation assigned successfully.')
 
     loadMatches()
   }
 
-  const markDelivered = async (match) => {
+  const updateStatus = async (match) => {
     if (!selectedDriver) return
 
-    const { error: matchError } = await supabase
-      .from('matches')
-      .update({
-        status: 'delivered',
-      })
-      .eq('id', match.id)
+    if (match.status === 'accepted') {
+      const { error: matchError } = await supabase
+        .from('matches')
+        .update({
+          status: 'picked_up',
+        })
+        .eq('id', match.id)
 
-    if (matchError) {
-      console.error(
-        'Error marking donation delivered:',
-        matchError
-      )
+      if (matchError) {
+        console.error('Error updating match:', matchError)
+        setMessage('Failed to mark donation as picked up.')
+        return
+      }
 
-      setMessage('Failed to update delivery status.')
+      const { error: donationError } = await supabase
+        .from('donations')
+        .update({
+          status: 'picked_up',
+        })
+        .eq('id', match.donation_id)
+
+      if (donationError) {
+        console.error(
+          'Error updating donation:',
+          donationError
+        )
+        setMessage(
+          'Match updated, but donation status update failed.'
+        )
+        return
+      }
+
+      setMessage('Donation marked as picked up.')
+      loadMatches()
       return
     }
 
-    const { data: updatedDriver, error: driverError } =
-      await supabase
+    if (match.status === 'picked_up') {
+      const { error: matchError } = await supabase
+        .from('matches')
+        .update({
+          status: 'delivered',
+        })
+        .eq('id', match.id)
+
+      if (matchError) {
+        console.error('Error updating match:', matchError)
+        setMessage('Failed to mark donation as delivered.')
+        return
+      }
+
+      const { error: donationError } = await supabase
+        .from('donations')
+        .update({
+          status: 'delivered',
+        })
+        .eq('id', match.donation_id)
+
+      if (donationError) {
+        console.error(
+          'Error updating donation:',
+          donationError
+        )
+        setMessage(
+          'Match updated, but donation status update failed.'
+        )
+        return
+      }
+
+      const { error: driverError } = await supabase
         .from('drivers')
         .update({
-          current_match_id: null,
           status: 'available',
+          current_match_id: null,
         })
         .eq('id', selectedDriver.id)
-        .select()
-        .single()
 
-    if (driverError) {
-      console.error(
-        'Error updating driver status:',
-        driverError
+      if (driverError) {
+        console.error(
+          'Error updating driver status:',
+          driverError
+        )
+      }
+
+      setMessage('Donation delivered successfully.')
+
+      const updatedDriver = {
+        ...selectedDriver,
+        status: 'available',
+        current_match_id: null,
+      }
+
+      setSelectedDriver(updatedDriver)
+
+      setDrivers((currentDrivers) =>
+        currentDrivers.map((driver) =>
+          driver.id === updatedDriver.id
+            ? updatedDriver
+            : driver
+        )
       )
 
-      setMessage(
-        'Donation delivered, but driver status update failed.'
-      )
-
-      return
+      loadMatches()
     }
-
-    setSelectedDriver(updatedDriver)
-
-    setDrivers((currentDrivers) =>
-      currentDrivers.map((driver) =>
-        driver.id === updatedDriver.id
-          ? updatedDriver
-          : driver
-      )
-    )
-
-    setMessage('Donation marked as delivered.')
-
-    loadMatches()
   }
 
   if (loading) {
     return (
       <div
         style={{
-          maxWidth: '900px',
+          maxWidth: '1000px',
           margin: '0 auto',
           padding: '40px 20px',
           fontFamily: 'Arial, sans-serif',
@@ -226,20 +267,10 @@ function Driver() {
     )
   }
 
-  const assignedMatches = matches.filter(
-    (match) =>
-      match.driver_id === selectedDriver?.id
-  )
-
-  const availableMatches = matches.filter(
-    (match) =>
-      !match.driver_id
-  )
-
   return (
     <div
       style={{
-        maxWidth: '900px',
+        maxWidth: '1000px',
         margin: '0 auto',
         padding: '40px 20px',
         fontFamily: 'Arial, sans-serif',
@@ -248,7 +279,6 @@ function Driver() {
       <h1
         style={{
           fontSize: '32px',
-          textAlign: 'center',
           marginBottom: '8px',
         }}
       >
@@ -257,24 +287,16 @@ function Driver() {
 
       <p
         style={{
-          textAlign: 'center',
           color: '#666',
-          marginBottom: '35px',
+          marginBottom: '30px',
         }}
       >
         View assigned food pickups and update delivery status.
       </p>
 
       <div style={{ marginBottom: '30px' }}>
-        <label
-          style={{
-            display: 'block',
-            textAlign: 'center',
-            fontWeight: 'bold',
-            marginBottom: '10px',
-          }}
-        >
-          Select Driver
+        <label>
+          <strong>Select Driver</strong>
         </label>
 
         <select
@@ -291,6 +313,7 @@ function Driver() {
             display: 'block',
             width: '100%',
             padding: '12px',
+            marginTop: '8px',
             borderRadius: '8px',
             border: '1px solid #ccc',
             background: 'white',
@@ -308,8 +331,7 @@ function Driver() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns:
-              'repeat(3, minmax(0, 1fr))',
+            gridTemplateColumns: 'repeat(3, 1fr)',
             gap: '15px',
             marginBottom: '30px',
           }}
@@ -319,19 +341,10 @@ function Driver() {
               padding: '20px',
               borderRadius: '10px',
               background: '#f3f4f6',
-              textAlign: 'center',
             }}
           >
             <strong>Driver</strong>
-
-            <p
-              style={{
-                marginBottom: 0,
-                color: '#666',
-              }}
-            >
-              {selectedDriver.name}
-            </p>
+            <p>{selectedDriver.name}</p>
           </div>
 
           <div
@@ -339,19 +352,10 @@ function Driver() {
               padding: '20px',
               borderRadius: '10px',
               background: '#f3f4f6',
-              textAlign: 'center',
             }}
           >
             <strong>Status</strong>
-
-            <p
-              style={{
-                marginBottom: 0,
-                color: '#666',
-              }}
-            >
-              {selectedDriver.status}
-            </p>
+            <p>{selectedDriver.status}</p>
           </div>
 
           <div
@@ -359,19 +363,10 @@ function Driver() {
               padding: '20px',
               borderRadius: '10px',
               background: '#f3f4f6',
-              textAlign: 'center',
             }}
           >
             <strong>Assignments</strong>
-
-            <p
-              style={{
-                marginBottom: 0,
-                color: '#666',
-              }}
-            >
-              {assignedMatches.length}
-            </p>
+            <p>{matches.length}</p>
           </div>
         </div>
       )}
@@ -384,7 +379,6 @@ function Driver() {
             borderRadius: '8px',
             background: '#eff6ff',
             color: '#1d4ed8',
-            textAlign: 'center',
           }}
         >
           {message}
@@ -393,21 +387,20 @@ function Driver() {
 
       <h2
         style={{
-          textAlign: 'center',
+          fontSize: '24px',
           marginBottom: '20px',
         }}
       >
         Assigned Donations
       </h2>
 
-      {assignedMatches.length === 0 ? (
+      {matches.length === 0 ? (
         <div
           style={{
             padding: '30px',
             textAlign: 'center',
             border: '1px solid #ddd',
             borderRadius: '10px',
-            marginBottom: '25px',
             color: '#666',
           }}
         >
@@ -417,15 +410,24 @@ function Driver() {
         <div
           style={{
             display: 'grid',
-            gap: '15px',
-            marginBottom: '30px',
+            gap: '20px',
           }}
         >
-          {assignedMatches.map((match) => {
+          {matches.map((match) => {
             const donation = match.donations
             const recipient = match.recipients
 
-            if (!donation) return null
+            if (!donation || !recipient) return null
+
+            const pickup = [
+              Number(donation.lat),
+              Number(donation.lng),
+            ]
+
+            const dropoff = [
+              Number(recipient.lat),
+              Number(recipient.lng),
+            ]
 
             return (
               <div
@@ -440,8 +442,7 @@ function Driver() {
                 <div
                   style={{
                     display: 'flex',
-                    justifyContent:
-                      'space-between',
+                    justifyContent: 'space-between',
                     alignItems: 'center',
                     marginBottom: '15px',
                   }}
@@ -454,7 +455,10 @@ function Driver() {
                     style={{
                       padding: '6px 10px',
                       borderRadius: '20px',
-                      background: '#dbeafe',
+                      background:
+                        match.status === 'picked_up'
+                          ? '#dbeafe'
+                          : '#fef3c7',
                     }}
                   >
                     {match.status}
@@ -466,84 +470,81 @@ function Driver() {
                   {donation.quantity} {donation.unit}
                 </p>
 
-                {recipient && (
-                  <p>
-                    <strong>Recipient:</strong>{' '}
-                    {recipient.name}
-                  </p>
-                )}
-
                 <p>
-                  <strong>Pickup Location:</strong>{' '}
-                  {Number(donation.lat).toFixed(5)},{' '}
-                  {Number(donation.lng).toFixed(5)}
+                  <strong>Pickup:</strong>{' '}
+                  {donation.lat.toFixed
+                    ? donation.lat.toFixed(5)
+                    : Number(donation.lat).toFixed(5)}
+                  ,{' '}
+                  {donation.lng.toFixed
+                    ? donation.lng.toFixed(5)
+                    : Number(donation.lng).toFixed(5)}
                 </p>
 
-                <div
+                <p>
+                  <strong>Drop-off:</strong>{' '}
+                  {Number(recipient.lat).toFixed(5)},{' '}
+                  {Number(recipient.lng).toFixed(5)}
+                </p>
+
+                <p>
+                  <strong>Recipient:</strong>{' '}
+                  {recipient.name}
+                </p>
+
+                <p>
+                  <strong>Expires:</strong>{' '}
+                  {new Date(
+                    donation.expiry_time
+                  ).toLocaleString()}
+                </p>
+
+                <MapContainer
+                  center={pickup}
+                  zoom={12}
                   style={{
+                    height: '300px',
+                    width: '100%',
+                    borderRadius: '10px',
                     marginTop: '20px',
+                    marginBottom: '20px',
                   }}
                 >
-                  <MapContainer
-                    center={[
-                      Number(donation.lat) ||
-                        DEFAULT_LOCATION[0],
-                      Number(donation.lng) ||
-                        DEFAULT_LOCATION[1],
-                    ]}
-                    zoom={13}
-                    style={{
-                      height: '250px',
-                      width: '100%',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    <TileLayer
-                      attribution="&copy; OpenStreetMap contributors"
-                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
+                  <TileLayer
+                    attribution="&copy; OpenStreetMap contributors"
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
 
-                    <Marker
-                      position={[
-                        Number(donation.lat) ||
-                          DEFAULT_LOCATION[0],
-                        Number(donation.lng) ||
-                          DEFAULT_LOCATION[1],
-                      ]}
-                    />
+                  <Marker position={pickup} />
 
-                    <Polyline
-                      positions={[
-                        [
-                          Number(donation.lat) ||
-                            DEFAULT_LOCATION[0],
-                          Number(donation.lng) ||
-                            DEFAULT_LOCATION[1],
-                        ],
-                        DEFAULT_LOCATION,
-                      ]}
-                    />
-                  </MapContainer>
-                </div>
+                  <Marker position={dropoff} />
+
+                  <Polyline
+                    positions={[pickup, dropoff]}
+                  />
+                </MapContainer>
 
                 <button
                   type="button"
-                  onClick={() =>
-                    markDelivered(match)
-                  }
+                  onClick={() => updateStatus(match)}
                   style={{
                     width: '100%',
-                    marginTop: '15px',
-                    padding: '12px',
-                    background: '#16a34a',
+                    padding: '14px',
+                    background:
+                      match.status === 'accepted'
+                        ? '#2563eb'
+                        : '#16a34a',
                     color: 'white',
                     border: 'none',
                     borderRadius: '8px',
+                    fontSize: '16px',
                     fontWeight: 'bold',
                     cursor: 'pointer',
                   }}
                 >
-                  Mark Delivered
+                  {match.status === 'accepted'
+                    ? 'Mark Picked Up'
+                    : 'Mark Delivered'}
                 </button>
               </div>
             )
@@ -551,130 +552,109 @@ function Driver() {
         </div>
       )}
 
-      <h2
-        style={{
-          textAlign: 'center',
-          marginBottom: '20px',
-        }}
-      >
-        Available Accepted Donations
-      </h2>
-
-      {availableMatches.length === 0 ? (
+      {matches.length === 0 && (
         <div
           style={{
-            padding: '30px',
-            textAlign: 'center',
+            marginTop: '20px',
+            padding: '20px',
             border: '1px solid #ddd',
             borderRadius: '10px',
-            color: '#666',
           }}
         >
-          No unassigned donations available.
-        </div>
-      ) : (
-        <div
-          style={{
-            display: 'grid',
-            gap: '15px',
-          }}
-        >
-          {availableMatches.map((match) => {
-            const donation = match.donations
-            const recipient = match.recipients
+          <h3>Available Accepted Donations</h3>
 
-            if (!donation) return null
-
-            return (
-              <div
-                key={match.id}
-                style={{
-                  padding: '20px',
-                  border: '1px solid #ddd',
-                  borderRadius: '10px',
-                  background: 'white',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent:
-                      'space-between',
-                    alignItems: 'center',
-                    marginBottom: '15px',
-                  }}
-                >
-                  <h3 style={{ margin: 0 }}>
-                    {donation.food_type}
-                  </h3>
-
-                  <span
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: '20px',
-                      background: '#dbeafe',
-                    }}
-                  >
-                    {match.status}
-                  </span>
-                </div>
-
-                <p>
-                  <strong>Quantity:</strong>{' '}
-                  {donation.quantity} {donation.unit}
-                </p>
-
-                {recipient && (
-                  <p>
-                    <strong>Recipient:</strong>{' '}
-                    {recipient.name}
-                  </p>
-                )}
-
-                <p>
-                  <strong>Pickup Location:</strong>{' '}
-                  {Number(donation.lat).toFixed(5)},{' '}
-                  {Number(donation.lng).toFixed(5)}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    assignMatch(match)
-                  }
-                  disabled={
-                    selectedDriver?.status === 'busy'
-                  }
-                  style={{
-                    width: '100%',
-                    marginTop: '15px',
-                    padding: '12px',
-                    background:
-                      selectedDriver?.status ===
-                      'busy'
-                        ? '#9ca3af'
-                        : '#2563eb',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontWeight: 'bold',
-                    cursor:
-                      selectedDriver?.status ===
-                      'busy'
-                        ? 'not-allowed'
-                        : 'pointer',
-                  }}
-                >
-                  {selectedDriver?.status ===
-                  'busy'
-                    ? 'Driver Busy'
-                    : 'Assign Donation'}
-                </button>
-              </div>
-            )
-          })}
+          <AvailableMatches
+            selectedDriver={selectedDriver}
+            onAssign={assignMatch}
+          />
         </div>
       )}
+    </div>
+  )
+}
+
+function AvailableMatches({ selectedDriver, onAssign }) {
+  const [availableMatches, setAvailableMatches] = useState([])
+
+  useEffect(() => {
+    loadAvailableMatches()
+  }, [])
+
+  const loadAvailableMatches = async () => {
+    const { data, error } = await supabase
+      .from('matches')
+      .select(`
+        *,
+        donations (*),
+        recipients (*)
+      `)
+      .eq('status', 'accepted')
+      .is('driver_id', null)
+
+    if (error) {
+      console.error(
+        'Error loading available matches:',
+        error
+      )
+      return
+    }
+
+    setAvailableMatches(data || [])
+  }
+
+  if (availableMatches.length === 0) {
+    return <p>No unassigned donations available.</p>
+  }
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gap: '15px',
+        marginTop: '15px',
+      }}
+    >
+      {availableMatches.map((match) => (
+        <div
+          key={match.id}
+          style={{
+            padding: '15px',
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+          }}
+        >
+          <strong>
+            {match.donations?.food_type}
+          </strong>
+
+          <p>
+            {match.donations?.quantity}{' '}
+            {match.donations?.unit}
+          </p>
+
+          <p>
+            Drop-off:{' '}
+            {match.recipients?.name}
+          </p>
+
+          <button
+            type="button"
+            onClick={() => onAssign(match)}
+            disabled={!selectedDriver}
+            style={{
+              width: '100%',
+              padding: '10px',
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
+          >
+            Assign to {selectedDriver?.name || 'Driver'}
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

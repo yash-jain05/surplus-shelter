@@ -6,11 +6,55 @@ import {
   Marker,
   useMapEvents,
 } from 'react-leaflet'
+import L from 'leaflet'
 import { supabase } from '../lib/supabaseClient'
 import { findBestMatches, createMatch } from '../matching/matcher'
 import 'leaflet/dist/leaflet.css'
 
 const DEFAULT_LOCATION = [26.9124, 75.7873]
+
+const customMarkerIcon = L.divIcon({
+  className: 'custom-map-marker',
+  html: `
+    <div style="
+      width: 38px;
+      height: 48px;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    ">
+      <svg
+        width="38"
+        height="48"
+        viewBox="0 0 38 48"
+        xmlns="http://www.w3.org/2000/svg"
+        style="
+          filter: drop-shadow(0 3px 4px rgba(0,0,0,0.35));
+        "
+      >
+        <path
+          d="M19 1
+             C9.1 1 1 9.1 1 19
+             C1 31.5 19 47 19 47
+             C19 47 37 31.5 37 19
+             C37 9.1 28.9 1 19 1Z"
+          fill="#dc2626"
+          stroke="#ffffff"
+          stroke-width="2"
+        />
+        <circle
+          cx="19"
+          cy="19"
+          r="7"
+          fill="#ffffff"
+        />
+      </svg>
+    </div>
+  `,
+  iconSize: [38, 48],
+  iconAnchor: [19, 47],
+})
 
 function LocationPicker({ location, setLocation }) {
   useMapEvents({
@@ -19,7 +63,12 @@ function LocationPicker({ location, setLocation }) {
     },
   })
 
-  return location ? <Marker position={location} /> : null
+  return location ? (
+    <Marker
+      position={location}
+      icon={customMarkerIcon}
+    />
+  ) : null
 }
 
 function Donor() {
