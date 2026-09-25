@@ -118,6 +118,36 @@ The architecture diagram is available in:
 - Shelly Soni
 - Anubhav Ratnawat
 
+# Team Contributions
+
+### 1. Yash Jain — Team Captain & Lead Developer
+- Overall project planning and coordination
+- Designed and integrated the overall system workflow
+- Frontend development and component integration
+- Supabase database and backend integration
+- Implemented the donor-to-recipient matching workflow
+- Developed and integrated the impact dashboard
+- GitHub repository management and deployment
+- End-to-end integration, testing, and final project verification
+
+### 2. Kabir Katare — Backend & Matching Developer
+- Assisted with database structure and backend integration
+- Worked on recipient-side workflow
+- Assisted with donation matching logic
+- Supported backend testing and integration
+
+### 3. Shelly Soni — UI/UX & Presentation
+- Assisted with user interface and user-flow design
+- Worked on visual presentation of the application
+- Prepared demo screenshots and presentation material
+- Assisted with project documentation and pitch preparation
+
+### 4. Anubhav Ratnawat — Testing & Documentation
+- Performed end-to-end application testing
+- Identified and reported bugs during development
+- Assisted with README and technical documentation
+- Supported deployment verification
+- Assisted with demo preparation and final testing
 ## Future Scope
 
 - Automatic nearest-driver dispatch
